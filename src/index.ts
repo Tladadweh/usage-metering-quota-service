@@ -1,62 +1,105 @@
-import express, { Request, Response } from "express";
-import { Pool } from "pg";
+import express, {
+  NextFunction,
+  Request,
+  Response,
+} from "express";
+
+import { pool } from "./db/pool";
+
+import accountsRouter from "./routes/accounts";
+import usersRouter from "./routes/users";
+import plansRouter from "./routes/plans";
 
 const app = express();
 
 const PORT = Number(process.env.PORT ?? 3000);
 
-const pool = new Pool({
-  host: process.env.DB_HOST ?? "localhost",
-  port: Number(process.env.DB_PORT ?? 5432),
-  database: process.env.DB_NAME ?? "quota_db",
-  user: process.env.DB_USER ?? "quota_app",
-  password: process.env.DB_PASSWORD,
-  max: 10,
-  connectionTimeoutMillis: 5000,
-});
-
 app.use(express.json());
 
-app.get("/health", async (_req: Request, res: Response) => {
-  try {
-    await pool.query("SELECT 1");
+// Health check
+app.get(
+  "/health",
+  async (_req: Request, res: Response) => {
+    try {
+      await pool.query("SELECT 1");
 
-    res.status(200).json({
-      status: "ok",
-      database: "connected",
-    });
-  } catch (error) {
-    console.error("Database health check failed:", error);
+      res.status(200).json({
+        status: "ok",
+        database: "connected",
+      });
+    } catch (error) {
+      console.error("Database health check failed:", error);
 
-    res.status(503).json({
-      status: "error",
-      database: "disconnected",
+      res.status(503).json({
+        status: "error",
+        database: "disconnected",
+      });
+    }
+  }
+);
+
+// API routes
+app.use("/accounts", accountsRouter);
+app.use("/users", usersRouter);
+app.use("/plans", plansRouter);
+
+// Handle unknown endpoints
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({
+    error: "Endpoint not found",
+  });
+});
+
+// Handle application errors
+app.use(
+  (
+    error: Error & { status?: number },
+    _req: Request,
+    res: Response,
+    _next: NextFunction
+  ) => {
+    if (error instanceof SyntaxError && error.status === 400) {
+      res.status(400).json({
+        error: "Invalid JSON request body",
+      });
+      return;
+    }
+
+    console.error("Application error:", error);
+
+    res.status(500).json({
+      error: "Internal server error",
     });
   }
-});
+);
 
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
-async function shutdown(): Promise<void> {
+let shuttingDown = false;
+
+function shutdown(): void {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+
   console.log("Shutting down...");
 
-  server.close(async () => {
-    try {
-      await pool.end();
-      process.exit(0);
-    } catch (error) {
-      console.error("Shutdown failed:", error);
-      process.exit(1);
-    }
+  server.close(() => {
+    pool
+      .end()
+      .then(() => {
+        process.exitCode = 0;
+      })
+      .catch((error) => {
+        console.error("Shutdown failed:", error);
+        process.exitCode = 1;
+      });
   });
 }
 
-process.on("SIGINT", () => {
-  void shutdown();
-});
-
-process.on("SIGTERM", () => {
-  void shutdown();
-});
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
