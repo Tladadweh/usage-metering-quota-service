@@ -1,4 +1,10 @@
-import { Router, Request, Response, NextFunction } from "express";
+
+import {
+  Router,
+  Request,
+  Response,
+  NextFunction,
+} from "express";
 
 import { pool } from "../db/pool";
 import {
@@ -15,7 +21,7 @@ const router = Router();
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Create a new account
+// Register account
 router.post(
   "/",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -24,29 +30,21 @@ router.post(
 
       if (
         typeof name !== "string" ||
-        name.trim().length === 0 ||
+        !name.trim() ||
         name.trim().length > 100
       ) {
-        res.status(400).json({
-          error: "Account name must be between 1 and 100 characters",
-        });
+        res.status(400).json({ error: "Invalid account name" });
         return;
       }
 
-      if (
-        typeof planId !== "string" ||
-        !UUID_REGEX.test(planId)
-      ) {
-        res.status(400).json({
-          error: "A valid planId is required",
-        });
+      if (typeof planId !== "string" || !UUID_REGEX.test(planId)) {
+        res.status(400).json({ error: "Invalid planId" });
         return;
       }
 
-      const planResult = await pool.query(
+      const plan = await pool.query(
         `
-        SELECT id
-        FROM plans
+        SELECT id FROM plans
         WHERE id = $1
           AND plan_type = 'ACCOUNT'
           AND is_predefined = TRUE
@@ -54,36 +52,20 @@ router.post(
         [planId]
       );
 
-      if (planResult.rowCount === 0) {
-        res.status(400).json({
-          error: "Invalid account plan",
-        });
+      if (plan.rowCount === 0) {
+        res.status(400).json({ error: "Invalid account plan" });
         return;
       }
 
       const apiKey = generateApiKey();
-      const apiKeyHash = hashApiKey(apiKey);
 
-      const result = await pool.query<{
-        id: string;
-        name: string;
-        plan_id: string;
-        created_at: Date;
-      }>(
+      const result = await pool.query(
         `
-        INSERT INTO accounts (
-          name,
-          api_key_hash,
-          plan_id
-        )
+        INSERT INTO accounts (name, api_key_hash, plan_id)
         VALUES ($1, $2, $3)
-        RETURNING
-          id,
-          name,
-          plan_id,
-          created_at
+        RETURNING id, name, plan_id, created_at
         `,
-        [name.trim(), apiKeyHash, planId]
+        [name.trim(), hashApiKey(apiKey), planId]
       );
 
       const account = result.rows[0];
@@ -104,27 +86,20 @@ router.post(
   }
 );
 
-// Get the authenticated account
+// Authenticated account details
 router.get(
   "/me",
   authenticateApiKey,
-  async (
-    req: AuthenticatedRequest,
-    res: Response,
-    next: NextFunction
-  ) => {
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
       const result = await pool.query(
         `
         SELECT
-          a.id,
-          a.name,
-          a.created_at,
+          a.id, a.name, a.created_at,
           p.id AS plan_id,
           p.name AS plan_name,
           r.monthly_allowance::TEXT AS monthly_allowance,
-          r.max_units_per_request::TEXT
-            AS max_units_per_request
+          r.max_units_per_request::TEXT AS max_units_per_request
         FROM accounts a
         JOIN plans p ON p.id = a.plan_id
         JOIN plan_rules r ON r.plan_id = p.id
@@ -134,15 +109,13 @@ router.get(
       );
 
       if (result.rowCount === 0) {
-        res.status(404).json({
-          error: "Account not found",
-        });
+        res.status(404).json({ error: "Account not found" });
         return;
       }
 
       const account = result.rows[0];
 
-      res.status(200).json({
+      res.json({
         account: {
           id: account.id,
           name: account.name,
@@ -157,6 +130,69 @@ router.get(
       });
     } catch (error) {
       next(error);
+    }
+  }
+);
+
+// Change account plan
+router.put(
+  "/plan",
+  authenticateApiKey,
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const { planId } = req.body ?? {};
+
+    if (typeof planId !== "string" || !UUID_REGEX.test(planId)) {
+      res.status(400).json({ error: "Invalid planId" });
+      return;
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      // Same lock used by consumption engine.
+      await client.query(
+        "SELECT id FROM accounts WHERE id = $1 FOR UPDATE",
+        [req.accountId]
+      );
+
+      const plan = await client.query(
+        `
+        SELECT p.id
+        FROM plans p
+        WHERE p.id = $1
+          AND p.plan_type = 'ACCOUNT'
+          AND (
+            p.is_predefined = TRUE
+            OR p.owner_account_id = $2
+          )
+        `,
+        [planId, req.accountId]
+      );
+
+      if (plan.rowCount === 0) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "Invalid account plan" });
+        return;
+      }
+
+      await client.query(
+        "UPDATE accounts SET plan_id = $1 WHERE id = $2",
+        [planId, req.accountId]
+      );
+
+      await client.query("COMMIT");
+
+      res.json({
+        message: "Account plan changed successfully",
+        planId,
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      next(error);
+    } finally {
+      client.release();
     }
   }
 );

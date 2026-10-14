@@ -1,3 +1,4 @@
+
 import express, {
   NextFunction,
   Request,
@@ -9,6 +10,7 @@ import { pool } from "./db/pool";
 import accountsRouter from "./routes/accounts";
 import usersRouter from "./routes/users";
 import plansRouter from "./routes/plans";
+import consumptionRouter from "./routes/consumption";
 import swaggerRouter from "./swagger";
 
 const app = express();
@@ -17,10 +19,8 @@ const PORT = Number(process.env.PORT ?? 3000);
 
 app.use(express.json());
 
-// Swagger documentation
 app.use("/api-docs", swaggerRouter);
 
-// Health check
 app.get(
   "/health",
   async (_req: Request, res: Response) => {
@@ -42,19 +42,17 @@ app.get(
   }
 );
 
-// API routes
 app.use("/accounts", accountsRouter);
 app.use("/users", usersRouter);
 app.use("/plans", plansRouter);
+app.use("/consumption", consumptionRouter);
 
-// Unknown endpoints
 app.use((_req: Request, res: Response) => {
   res.status(404).json({
     error: "Endpoint not found",
   });
 });
 
-// Application error handler
 app.use(
   (
     error: Error & { status?: number },
@@ -87,12 +85,9 @@ const server = app.listen(PORT, () => {
 let shuttingDown = false;
 
 function shutdown(): void {
-  if (shuttingDown) {
-    return;
-  }
+  if (shuttingDown) return;
 
   shuttingDown = true;
-
   console.log("Shutting down...");
 
   server.close(() => {
