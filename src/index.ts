@@ -9,12 +9,16 @@ import { pool } from "./db/pool";
 import accountsRouter from "./routes/accounts";
 import usersRouter from "./routes/users";
 import plansRouter from "./routes/plans";
+import swaggerRouter from "./swagger";
 
 const app = express();
 
 const PORT = Number(process.env.PORT ?? 3000);
 
 app.use(express.json());
+
+// Swagger documentation
+app.use("/api-docs", swaggerRouter);
 
 // Health check
 app.get(
@@ -43,14 +47,14 @@ app.use("/accounts", accountsRouter);
 app.use("/users", usersRouter);
 app.use("/plans", plansRouter);
 
-// Handle unknown endpoints
+// Unknown endpoints
 app.use((_req: Request, res: Response) => {
   res.status(404).json({
     error: "Endpoint not found",
   });
 });
 
-// Handle application errors
+// Application error handler
 app.use(
   (
     error: Error & { status?: number },
@@ -58,7 +62,10 @@ app.use(
     res: Response,
     _next: NextFunction
   ) => {
-    if (error instanceof SyntaxError && error.status === 400) {
+    if (
+      error instanceof SyntaxError &&
+      error.status === 400
+    ) {
       res.status(400).json({
         error: "Invalid JSON request body",
       });
