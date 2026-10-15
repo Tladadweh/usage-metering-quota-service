@@ -1,0 +1,408 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1.0" />
+  <title>Quota Service Demo</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #f4f6fa;
+      color: #172033;
+      font-family: Arial, sans-serif;
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 960px;
+      margin: 40px auto;
+      padding: 0 20px 40px;
+    }
+
+    h1 {
+      margin-bottom: 6px;
+    }
+
+    h2 {
+      font-size: 19px;
+      margin: 0 0 14px;
+    }
+
+    .subtitle {
+      color: #667085;
+      margin: 0 0 24px;
+    }
+
+    .card {
+      background: white;
+      border: 1px solid #e4e7ec;
+      border-radius: 12px;
+      padding: 22px;
+      margin-bottom: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    .label {
+      color: #667085;
+      font-size: 13px;
+    }
+
+    .value {
+      font-size: 25px;
+      font-weight: bold;
+      margin: 5px 0;
+    }
+
+    .muted {
+      color: #667085;
+      font-size: 14px;
+    }
+
+    .actions {
+      display: grid;
+      gap: 12px;
+    }
+
+    button {
+      padding: 13px 16px;
+      border: none;
+      background: #175cd3;
+      color: white;
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    button:hover {
+      background: #1849a9;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .secondary {
+      background: #344054;
+    }
+
+    .secondary:hover {
+      background: #1d2939;
+    }
+
+    .upgrade {
+      background: #067647;
+    }
+
+    .upgrade:hover {
+      background: #05603a;
+    }
+
+    pre {
+      background: #101828;
+      color: #e4e7ec;
+      padding: 18px;
+      border-radius: 8px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      min-height: 100px;
+    }
+
+    .status {
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    .success {
+      color: #067647;
+    }
+
+    .failure {
+      color: #b42318;
+    }
+
+    .notice {
+      padding: 14px;
+      background: #eff8ff;
+      border: 1px solid #b2ddff;
+      border-radius: 8px;
+      margin-bottom: 18px;
+    }
+
+    @media (max-width: 650px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      main {
+        margin-top: 18px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>Usage Metering & Quota Service</h1>
+
+    <p class="subtitle">
+      Example application for demonstrating account
+      and user quota enforcement.
+    </p>
+
+    <div class="notice">
+      Run the actions in order on a fresh demo account.
+      Every consumption request gets a unique request ID.
+      Usage persists after restarting the containers.
+    </div>
+
+    <section class="card">
+      <h2>Shared Account</h2>
+
+      <div class="grid">
+        <div>
+          <div class="label">Current Plan</div>
+          <div id="account-plan" class="value">Loading...</div>
+        </div>
+
+        <div>
+          <div class="label">UTC Month</div>
+          <div id="month" class="value">Loading...</div>
+        </div>
+
+        <div>
+          <div class="label">Monthly Allowance</div>
+          <div id="account-allowance" class="value">-</div>
+        </div>
+
+        <div>
+          <div class="label">Consumed / Remaining</div>
+          <div id="account-usage" class="value">-</div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Basic User</h2>
+
+        <div class="label">Plan Limits</div>
+        <div id="basic-limits" class="muted">Loading...</div>
+
+        <br />
+
+        <div class="label">Consumed / Remaining</div>
+        <div id="basic-usage" class="value">-</div>
+      </section>
+
+      <section class="card">
+        <h2>Premium User</h2>
+
+        <div class="label">Plan Limits</div>
+        <div id="premium-limits" class="muted">Loading...</div>
+
+        <br />
+
+        <div class="label">Consumed / Remaining</div>
+        <div id="premium-usage" class="value">-</div>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>Demonstration Actions</h2>
+
+      <div class="actions">
+        <button
+          data-action="basic-accepted"
+          onclick="runAction('basic-accepted')"
+        >
+          1. Basic User — Consume 10 Units (Accepted)
+        </button>
+
+        <button
+          data-action="basic-user-rejection"
+          onclick="runAction('basic-user-rejection')"
+        >
+          2. Basic User — Consume 25 Units (User Limit)
+        </button>
+
+        <button
+          data-action="premium-account-rejection"
+          onclick="runAction('premium-account-rejection')"
+        >
+          3. Premium User — Consume 40 Units (Account Limit)
+        </button>
+
+        <button
+          class="upgrade"
+          data-action="upgrade-account"
+          onclick="runAction('upgrade-account')"
+        >
+          4. Upgrade Account Monthly Allowance to 100
+        </button>
+
+        <button
+          data-action="premium-account-rejection"
+          onclick="runAction('premium-account-rejection')"
+        >
+          5. Premium User — Retry 40 Units (Accepted)
+        </button>
+
+        <button
+          class="secondary"
+          onclick="loadDashboard()"
+        >
+          Refresh Usage
+        </button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Latest API Response</h2>
+
+      <div id="status" class="status">
+        Ready
+      </div>
+
+      <pre id="response">No action executed yet.</pre>
+    </section>
+
+    <p class="muted">
+      This demo calls the TypeScript backend using an
+      account API key stored on the client server.
+      The API key is never sent to the browser.
+    </p>
+  </main>
+
+  <script>
+    const byId = (id) => document.getElementById(id);
+
+    function formatUsage(usage) {
+      return `${usage.consumed} / ${usage.remaining}`;
+    }
+
+    function renderUser(user, prefix) {
+      byId(`${prefix}-limits`).textContent =
+        `${user.plan.name}: ` +
+        `${user.plan.monthlyAllowance} monthly, ` +
+        `${user.plan.maxUnitsPerRequest} per request`;
+
+      byId(`${prefix}-usage`).textContent =
+        formatUsage(user.usage);
+    }
+
+    async function loadDashboard() {
+      try {
+        const response = await fetch("/api/state");
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Unable to load state");
+        }
+
+        byId("account-plan").textContent =
+          data.account.plan.name;
+
+        byId("account-allowance").textContent =
+          data.account.plan.monthlyAllowance;
+
+        byId("account-usage").textContent =
+          formatUsage(data.accountUsage);
+
+        byId("month").textContent = data.month;
+
+        const basic = data.users.find(
+          (user) => user.externalUserId === "demo-basic"
+        );
+
+        const premium = data.users.find(
+          (user) => user.externalUserId === "demo-premium"
+        );
+
+        if (basic) {
+          renderUser(basic, "basic");
+        }
+
+        if (premium) {
+          renderUser(premium, "premium");
+        }
+      } catch (error) {
+        byId("status").textContent = error.message;
+        byId("status").className = "status failure";
+      }
+    }
+
+    async function runAction(action) {
+      const buttons = document.querySelectorAll("button");
+
+      buttons.forEach((button) => {
+        button.disabled = true;
+      });
+
+      byId("status").textContent = "Processing...";
+      byId("status").className = "status";
+
+      try {
+        const response = await fetch(
+          `/api/actions/${action}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: "{}",
+          }
+        );
+
+        const data = await response.json();
+
+        byId("response").textContent =
+          JSON.stringify(data, null, 2);
+
+        if (!response.ok) {
+          byId("status").textContent =
+            `HTTP ${response.status} — Error`;
+
+          byId("status").className = "status failure";
+        } else if (data.accepted === false) {
+          byId("status").textContent =
+            "Rejected by quota rule";
+
+          byId("status").className = "status failure";
+        } else {
+          byId("status").textContent = data.accepted === true
+            ? "Accepted"
+            : "Plan updated successfully";
+
+          byId("status").className = "status success";
+        }
+
+        await loadDashboard();
+      } catch (error) {
+        byId("status").textContent = error.message;
+        byId("status").className = "status failure";
+      } finally {
+        buttons.forEach((button) => {
+          button.disabled = false;
+        });
+      }
+    }
+
+    loadDashboard();
+  </script>
+</body>
+</html>

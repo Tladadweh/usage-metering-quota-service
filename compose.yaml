@@ -1,3 +1,4 @@
+
 services:
   db:
     image: postgres:16-alpine
@@ -20,7 +21,7 @@ services:
   api:
     build: .
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       PORT: "3000"
       DB_HOST: db
@@ -33,5 +34,20 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  client:
+    build: ./client
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      PORT: "3001"
+      API_URL: http://api:3000
+      STATE_FILE: /app/data/demo-state.json
+    volumes:
+      - demo_client_data:/app/data
+    depends_on:
+      - api
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  demo_client_data:
