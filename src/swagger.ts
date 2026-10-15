@@ -2,23 +2,38 @@
 import { Router } from "express";
 import swaggerUi from "swagger-ui-express";
 
-const apiKeySecurity = [{ ApiKeyAuth: [] }];
+const security = [{ ApiKeyAuth: [] }];
 
-const planLimits = {
-  type: "object",
-  properties: {
-    monthlyAllowance: {
-      type: "integer",
-      minimum: 0,
-      maximum: 9007199254740991,
-      example: 5000,
+const jsonBody = (schemaName: string) => ({
+  required: true,
+  content: {
+    "application/json": {
+      schema: {
+        $ref: `#/components/schemas/${schemaName}`,
+      },
     },
-    maxUnitsPerRequest: {
-      type: "integer",
-      minimum: 1,
-      maximum: 9007199254740991,
-      example: 50,
-    },
+  },
+});
+
+const idParameter = {
+  name: "id",
+  in: "path",
+  required: true,
+  schema: {
+    type: "string",
+    format: "uuid",
+  },
+};
+
+const monthParameter = {
+  name: "month",
+  in: "query",
+  required: false,
+  description: "UTC calendar month. Defaults to current UTC month.",
+  schema: {
+    type: "string",
+    pattern: "^\\d{4}-(0[1-9]|1[0-2])$",
+    example: "2026-10",
   },
 };
 
@@ -43,8 +58,14 @@ const swaggerDocument = {
         type: "object",
         required: ["name", "planId"],
         properties: {
-          name: { type: "string", example: "Test Company" },
-          planId: { type: "string", format: "uuid" },
+          name: {
+            type: "string",
+            example: "Test Company",
+          },
+          planId: {
+            type: "string",
+            format: "uuid",
+          },
         },
       },
       CreateUser: {
@@ -53,9 +74,12 @@ const swaggerDocument = {
         properties: {
           externalUserId: {
             type: "string",
-            example: "user_002",
+            example: "user_001",
           },
-          planId: { type: "string", format: "uuid" },
+          planId: {
+            type: "string",
+            format: "uuid",
+          },
         },
       },
       CreatePlan: {
@@ -75,37 +99,63 @@ const swaggerDocument = {
             type: "string",
             enum: ["ACCOUNT", "USER"],
           },
-          ...planLimits.properties,
+          monthlyAllowance: {
+            type: "integer",
+            minimum: 0,
+            example: 5000,
+          },
+          maxUnitsPerRequest: {
+            type: "integer",
+            minimum: 1,
+            example: 50,
+          },
         },
       },
       UpdatePlan: {
         type: "object",
         properties: {
-          name: { type: "string", example: "Business Plus" },
-          ...planLimits.properties,
+          name: {
+            type: "string",
+            example: "Business Plus",
+          },
+          monthlyAllowance: {
+            type: "integer",
+            minimum: 0,
+            example: 8000,
+          },
+          maxUnitsPerRequest: {
+            type: "integer",
+            minimum: 1,
+            example: 60,
+          },
         },
       },
       AssignPlan: {
         type: "object",
         required: ["planId"],
         properties: {
-          planId: { type: "string", format: "uuid" },
+          planId: {
+            type: "string",
+            format: "uuid",
+          },
         },
       },
       ConsumeUnits: {
         type: "object",
         required: ["userId", "units", "requestId"],
         properties: {
-          userId: { type: "string", format: "uuid" },
+          userId: {
+            type: "string",
+            format: "uuid",
+          },
           units: {
             type: "integer",
             minimum: 1,
-            maximum: 9007199254740991,
             example: 10,
           },
           requestId: {
             type: "string",
-            example: "request-001",
+            example: "consume-001",
           },
         },
       },
@@ -117,59 +167,17 @@ const swaggerDocument = {
     { name: "Accounts" },
     { name: "Users" },
     { name: "Consumption" },
+    { name: "Usage" },
+    { name: "History" },
   ],
   paths: {
     "/health": {
       get: {
         tags: ["Health"],
-        summary: "Check API and database health",
+        summary: "Check service health",
         responses: {
           "200": { description: "Healthy" },
           "503": { description: "Database unavailable" },
-        },
-      },
-    },
-
-   
-
-    "/plans/mine": {
-      get: {
-        tags: ["Plans"],
-        summary: "List plans available to this account",
-        security: apiKeySecurity,
-        responses: {
-          "200": { description: "Available plans" },
-          "401": { description: "Unauthorized" },
-        },
-      },
-    },
-
-    "/plans/{id}": {
-      patch: {
-        tags: ["Plans"],
-        summary: "Update an owned custom plan",
-        security: apiKeySecurity,
-        parameters: [{
-          name: "id",
-          in: "path",
-          required: true,
-          schema: { type: "string", format: "uuid" },
-        }],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/UpdatePlan",
-              },
-            },
-          },
-        },
-        responses: {
-          "200": { description: "Plan updated" },
-          "400": { description: "Invalid input" },
-          "401": { description: "Unauthorized" },
-          "404": { description: "Custom plan not found" },
         },
       },
     },
@@ -194,21 +202,40 @@ const swaggerDocument = {
       post: {
         tags: ["Plans"],
         summary: "Create custom plan",
-        security: apiKeySecurity,
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/CreatePlan",
-              },
-            },
-          },
-        },
+        security,
+        requestBody: jsonBody("CreatePlan"),
         responses: {
-          "201": { description: "Custom plan created" },
+          "201": { description: "Plan created" },
           "400": { description: "Invalid plan data" },
           "401": { description: "Unauthorized" },
+        },
+      },
+    },
+
+    "/plans/mine": {
+      get: {
+        tags: ["Plans"],
+        summary: "List available account plans",
+        security,
+        responses: {
+          "200": { description: "Plans returned" },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
+
+    "/plans/{id}": {
+      patch: {
+        tags: ["Plans"],
+        summary: "Update owned custom plan",
+        security,
+        parameters: [idParameter],
+        requestBody: jsonBody("UpdatePlan"),
+        responses: {
+          "200": { description: "Plan updated" },
+          "400": { description: "Invalid input" },
+          "401": { description: "Unauthorized" },
+          "404": { description: "Plan not found" },
         },
       },
     },
@@ -217,16 +244,7 @@ const swaggerDocument = {
       post: {
         tags: ["Accounts"],
         summary: "Create account and issue API key",
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/CreateAccount",
-              },
-            },
-          },
-        },
+        requestBody: jsonBody("CreateAccount"),
         responses: {
           "201": { description: "Account created" },
           "400": { description: "Invalid input" },
@@ -238,7 +256,7 @@ const swaggerDocument = {
       get: {
         tags: ["Accounts"],
         summary: "Get authenticated account",
-        security: apiKeySecurity,
+        security,
         responses: {
           "200": { description: "Account details" },
           "401": { description: "Unauthorized" },
@@ -250,17 +268,8 @@ const swaggerDocument = {
       put: {
         tags: ["Accounts"],
         summary: "Change account plan",
-        security: apiKeySecurity,
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/AssignPlan",
-              },
-            },
-          },
-        },
+        security,
+        requestBody: jsonBody("AssignPlan"),
         responses: {
           "200": { description: "Plan changed" },
           "400": { description: "Invalid plan" },
@@ -273,7 +282,7 @@ const swaggerDocument = {
       get: {
         tags: ["Users"],
         summary: "List account users",
-        security: apiKeySecurity,
+        security,
         responses: {
           "200": { description: "Users returned" },
           "401": { description: "Unauthorized" },
@@ -282,17 +291,8 @@ const swaggerDocument = {
       post: {
         tags: ["Users"],
         summary: "Create user",
-        security: apiKeySecurity,
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/CreateUser",
-              },
-            },
-          },
-        },
+        security,
+        requestBody: jsonBody("CreateUser"),
         responses: {
           "201": { description: "User created" },
           "400": { description: "Invalid input" },
@@ -306,13 +306,8 @@ const swaggerDocument = {
       get: {
         tags: ["Users"],
         summary: "Get user details",
-        security: apiKeySecurity,
-        parameters: [{
-          name: "id",
-          in: "path",
-          required: true,
-          schema: { type: "string", format: "uuid" },
-        }],
+        security,
+        parameters: [idParameter],
         responses: {
           "200": { description: "User details" },
           "400": { description: "Invalid ID" },
@@ -325,26 +320,12 @@ const swaggerDocument = {
     "/users/{id}/plan": {
       put: {
         tags: ["Users"],
-        summary: "Change user's plan",
-        security: apiKeySecurity,
-        parameters: [{
-          name: "id",
-          in: "path",
-          required: true,
-          schema: { type: "string", format: "uuid" },
-        }],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/AssignPlan",
-              },
-            },
-          },
-        },
+        summary: "Change user plan",
+        security,
+        parameters: [idParameter],
+        requestBody: jsonBody("AssignPlan"),
         responses: {
-          "200": { description: "User plan changed" },
+          "200": { description: "Plan changed" },
           "400": { description: "Invalid plan" },
           "401": { description: "Unauthorized" },
           "404": { description: "User not found" },
@@ -355,33 +336,110 @@ const swaggerDocument = {
     "/consumption": {
       post: {
         tags: ["Consumption"],
-        summary: "Consume units under account and user quotas",
+        summary: "Consume units",
         description:
-          "An accepted request updates both account and user counters. A rejected request consumes nothing. Reusing the same request ID with identical data replays the original decision.",
-        security: apiKeySecurity,
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                $ref: "#/components/schemas/ConsumeUnits",
-              },
-            },
-          },
-        },
+          "Evaluates account and user quotas. Records accepted and rejected requests. Identical retries do not consume again.",
+        security,
+        requestBody: jsonBody("ConsumeUnits"),
         responses: {
-          "200": { description: "Accepted or rejected decision" },
-          "400": { description: "Invalid request" },
+          "200": { description: "Consumption decision" },
+          "400": { description: "Invalid input" },
           "401": { description: "Unauthorized" },
           "404": { description: "User not found" },
           "409": { description: "Conflicting requestId" },
         },
       },
     },
+
+    "/usage/account": {
+      get: {
+        tags: ["Usage"],
+        summary: "Get monthly account usage",
+        description:
+          "Returns consumed and remaining units for the authenticated account.",
+        security,
+        parameters: [monthParameter],
+        responses: {
+          "200": { description: "Account usage" },
+          "400": { description: "Invalid month" },
+          "401": { description: "Unauthorized" },
+        },
+      },
+    },
+
+    "/usage/users/{id}": {
+      get: {
+        tags: ["Usage"],
+        summary: "Get monthly user usage",
+        description:
+          "Returns consumed and remaining units for a user belonging to the authenticated account.",
+        security,
+        parameters: [
+          idParameter,
+          monthParameter,
+        ],
+        responses: {
+          "200": { description: "User usage" },
+          "400": { description: "Invalid ID or month" },
+          "401": { description: "Unauthorized" },
+          "404": { description: "User not found" },
+        },
+      },
+    },
+
+    "/history": {
+      get: {
+        tags: ["History"],
+        summary: "Get consumption request history",
+        description:
+          "Returns accepted and rejected requests for a UTC month, ordered newest first, with pagination.",
+        security,
+        parameters: [
+          monthParameter,
+          {
+            name: "userId",
+            in: "query",
+            required: false,
+            schema: {
+              type: "string",
+              format: "uuid",
+            },
+            description: "Filter by a user in the account",
+          },
+          {
+            name: "page",
+            in: "query",
+            required: false,
+            schema: {
+              type: "integer",
+              minimum: 1,
+              maximum: 1000000,
+              default: 1,
+            },
+          },
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            schema: {
+              type: "integer",
+              minimum: 1,
+              maximum: 100,
+              default: 20,
+            },
+          },
+        ],
+        responses: {
+          "200": { description: "Paginated request history" },
+          "400": { description: "Invalid query parameters" },
+          "401": { description: "Unauthorized" },
+          "404": { description: "User not found" },
+        },
+      },
+    },
   },
 };
 
-// Export plain OpenAPI specification for inspection.
 const swaggerRouter = Router();
 
 swaggerRouter.get("/openapi.json", (_req, res) => {
