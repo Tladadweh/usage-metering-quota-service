@@ -8,7 +8,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "express": "^4.21.2",
@@ -21,7 +22,8 @@
     "@types/pg": "^8.11.13",
     "@types/swagger-ui-express": "^4.1.8",
     "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^5.0.5"
   },
   "engines": {
     "node": ">=22"
