@@ -112,6 +112,9 @@ router.post(
       return;
     }
 
+    // UUIDs are case-insensitive in PostgreSQL.
+    const normalizedUserId = userId.toLowerCase();
+
     const client = await pool.connect();
 
     try {
@@ -147,7 +150,7 @@ router.post(
         const previous = existing.rows[0];
 
         if (
-          previous.user_id !== userId ||
+          previous.user_id !== normalizedUserId ||
           previous.units !== String(units)
         ) {
           await client.query("ROLLBACK");
@@ -170,7 +173,7 @@ router.post(
         return;
       }
 
-      // Verify user belongs to authenticated account.
+      // Verify the user belongs to this account.
       const userResult = await client.query(
         `
         SELECT
@@ -185,7 +188,7 @@ router.post(
         JOIN plan_rules ur ON ur.plan_id = u.plan_id
         WHERE u.id = $1 AND u.account_id = $2
         `,
-        [userId, req.accountId]
+        [normalizedUserId, req.accountId]
       );
 
       if (userResult.rowCount === 0) {
@@ -195,19 +198,27 @@ router.post(
         return;
       }
 
-      // Use database UTC time to choose consumption month.
-      const monthResult = await client.query(
+      // Capture one database timestamp AFTER acquiring the
+      // account lock. Use it for both the usage month and
+      // the stored decision timestamp.
+      const timeResult = await client.query(
         `
         SELECT
-          (
-            DATE_TRUNC('month', NOW() AT TIME ZONE 'UTC')
+          captured.occurred_at,
+          DATE_TRUNC(
+            'month',
+            captured.occurred_at AT TIME ZONE 'UTC'
           )::DATE AS month_start
+        FROM (
+          SELECT clock_timestamp() AS occurred_at
+        ) AS captured
         `
       );
 
-      const monthStart = monthResult.rows[0].month_start;
+      const occurredAt = timeResult.rows[0].occurred_at;
+      const monthStart = timeResult.rows[0].month_start;
 
-      // Current account and user usage.
+      // Read current account and user usage.
       const usageResult = await client.query(
         `
         SELECT
@@ -223,7 +234,7 @@ router.post(
         WHERE account_id = $1
           AND month_start = $3
         `,
-        [req.accountId, userId, monthStart]
+        [req.accountId, normalizedUserId, monthStart]
       );
 
       const limits = userResult.rows[0];
@@ -281,11 +292,17 @@ router.post(
             consumed_units =
               usage_counters.consumed_units + EXCLUDED.consumed_units
           `,
-          [req.accountId, userId, monthStart, String(units)]
+          [
+            req.accountId,
+            normalizedUserId,
+            monthStart,
+            String(units),
+          ]
         );
       }
 
-      // Preserve both accepted and rejected decisions.
+      // Record accepted and rejected decisions with the
+      // same timestamp used to determine the UTC month.
       await client.query(
         `
         INSERT INTO consumption_requests (
@@ -295,26 +312,31 @@ router.post(
           units,
           accepted,
           rejection_scope,
-          rejection_rule
+          rejection_rule,
+          created_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
         [
           req.accountId,
-          userId,
+          normalizedUserId,
           requestId,
           String(units),
           decision.accepted,
           decision.rejectionScope,
           decision.rejectionRule,
+          occurredAt,
         ]
       );
 
       await client.query("COMMIT");
 
-      const newAccountUsed = accountUsed +
+      const newAccountUsed =
+        accountUsed +
         (decision.accepted ? requestedUnits : 0n);
-      const newUserUsed = userUsed +
+
+      const newUserUsed =
+        userUsed +
         (decision.accepted ? requestedUnits : 0n);
 
       res.json({

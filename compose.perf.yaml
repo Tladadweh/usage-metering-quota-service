@@ -1,0 +1,21 @@
+
+services:
+  k6:
+    image: grafana/k6:latest
+
+    profiles:
+      - performance
+
+    environment:
+      API_URL: http://api:3000
+
+    volumes:
+      - ./tests/performance:/scripts:ro
+
+    depends_on:
+      api:
+        condition: service_started
+
+    command:
+      - run
+      - /scripts/load.js

@@ -19,7 +19,7 @@ const router = Router();
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
+  
 router.use(authenticateApiKey);
 
 function parsePositiveInteger(
@@ -128,13 +128,16 @@ router.get(
         userId,
       ];
 
+      // Count records using explicit UTC month bounds.
       const countResult = await pool.query(
         `
         SELECT COUNT(*)::TEXT AS total
         FROM consumption_requests
         WHERE account_id = $1
-          AND created_at >= $2::DATE
-          AND created_at < $3::DATE
+          AND created_at >=
+            ($2::DATE::TIMESTAMP AT TIME ZONE 'UTC')
+          AND created_at <
+            ($3::DATE::TIMESTAMP AT TIME ZONE 'UTC')
           AND (
             $4::UUID IS NULL
             OR user_id = $4::UUID
@@ -143,6 +146,8 @@ router.get(
         params
       );
 
+      // Use exactly the same UTC month bounds
+      // when fetching paginated records.
       const result = await pool.query(
         `
         SELECT
@@ -156,9 +161,11 @@ router.get(
           created_at
         FROM consumption_requests
         WHERE account_id = $1
-        AND created_at >= ($2::DATE::TIMESTAMP AT TIME ZONE 'UTC')
-        AND created_at < ($3::DATE::TIMESTAMP AT TIME ZONE 'UTC')          
-        AND (
+          AND created_at >=
+            ($2::DATE::TIMESTAMP AT TIME ZONE 'UTC')
+          AND created_at <
+            ($3::DATE::TIMESTAMP AT TIME ZONE 'UTC')
+          AND (
             $4::UUID IS NULL
             OR user_id = $4::UUID
           )
